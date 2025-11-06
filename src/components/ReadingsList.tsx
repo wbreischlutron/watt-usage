@@ -1,8 +1,9 @@
-import { createSignal, onMount, onCleanup, For } from 'solid-js';
+import { createSignal, onMount, onCleanup, For, Show } from 'solid-js';
 import { db, EnergyReading } from '../db';
 
 export default function ReadingsList() {
   const [readings, setReadings] = createSignal<EnergyReading[]>([]);
+  const [pricePerKwh, setPricePerKwh] = createSignal(0);
 
   const loadReadings = async () => {
     try {
@@ -10,6 +11,17 @@ export default function ReadingsList() {
       setReadings(allReadings);
     } catch (error) {
       console.error('Failed to load readings:', error);
+    }
+  };
+
+  const loadSettings = async () => {
+    try {
+      const settings = await db.settings.toArray();
+      if (settings.length > 0) {
+        setPricePerKwh(settings[0].pricePerKwh);
+      }
+    } catch (error) {
+      console.error('Failed to load settings:', error);
     }
   };
 
@@ -38,17 +50,31 @@ export default function ReadingsList() {
     });
   };
 
+  const calculateMonthlyCost = (wattage: number) => {
+    // Convert watts to kilowatts, multiply by hours in a day (24), days in month (30), and price per kWh
+    const kilowatts = wattage / 1000;
+    const monthlyKwh = kilowatts * 24 * 30;
+    return monthlyKwh * pricePerKwh();
+  };
+
   const handleReadingsUpdate = () => {
     loadReadings();
   };
 
+  const handleSettingsUpdate = () => {
+    loadSettings();
+  };
+
   onMount(() => {
     loadReadings();
+    loadSettings();
     window.addEventListener('readings-updated', handleReadingsUpdate);
+    window.addEventListener('settings-updated', handleSettingsUpdate);
   });
 
   onCleanup(() => {
     window.removeEventListener('readings-updated', handleReadingsUpdate);
+    window.removeEventListener('settings-updated', handleSettingsUpdate);
   });
 
   return (
@@ -70,7 +96,14 @@ export default function ReadingsList() {
                     {formatDate(reading.timestamp)}
                   </div>
                 </div>
-                <div class="reading-wattage">{reading.wattage} W</div>
+                <div style={{ display: 'flex', 'flex-direction': 'column', 'align-items': 'flex-end', 'margin-right': '1em' }}>
+                  <div class="reading-wattage">{reading.wattage} W</div>
+                  <Show when={pricePerKwh() > 0}>
+                    <div style={{ 'font-size': '1em', 'font-weight': '600', color: 'var(--color-primary)', 'margin-top': '0.3em' }}>
+                      ${calculateMonthlyCost(reading.wattage).toFixed(2)}/month
+                    </div>
+                  </Show>
+                </div>
                 <button
                   class="danger delete-btn"
                   onClick={() => deleteReading(reading.id)}
